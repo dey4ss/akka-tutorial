@@ -129,7 +129,7 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 
         if (message != null) {
             completed.receiver.tell(message, completed.sender);
-            log().info("Sent LargeMessage to {}", completed.receiver);
+            log().info("Sent LargeMessage of {} to {}", message.getClass(), completed.receiver);
         }
     }
 
