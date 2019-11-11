@@ -117,18 +117,20 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 
 	private void handle(StreamCompleted completed) {
 		log().info("Stream completed with {} chunks", this.messageChunks.size());
-		Object message;
+		Object message = null;
         try {
             message = deserialize(this.messageChunks);
         } catch (IOException | ClassNotFoundException e) {
             log().error("Could not deserialize LargeMessage to {}", completed.receiver);
             e.printStackTrace();
-            return;
+        } finally {
+            messageChunks = new LinkedList<>();
         }
 
-        completed.receiver.tell(message, completed.sender);
-        messageChunks = new LinkedList<>();
-        log().info("Sent LargeMessage to {}", completed.receiver);
+        if (message != null) {
+            completed.receiver.tell(message, completed.sender);
+            log().info("Sent LargeMessage to {}", completed.receiver);
+        }
     }
 
 	private void handle(StreamFailure failed) {
