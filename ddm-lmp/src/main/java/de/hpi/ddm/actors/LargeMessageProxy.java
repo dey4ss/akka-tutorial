@@ -5,14 +5,18 @@ import akka.actor.AbstractLoggingActor;
 import akka.actor.ActorRef;
 import akka.actor.Props;
 import akka.stream.ActorMaterializer;
+import akka.stream.OverflowStrategy;
 import akka.stream.javadsl.Sink;
 import akka.stream.javadsl.Source;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.io.Serializable;
+import java.io.*;
 import java.time.Duration;
+import java.util.Arrays;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.concurrent.ExecutionException;
 
 public class LargeMessageProxy extends AbstractLoggingActor {
@@ -22,10 +26,13 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 	////////////////////////
 
 	public static final String DEFAULT_NAME = "largeMessageProxy";
-	
-	public static Props props() {
-		return Props.create(LargeMessageProxy.class);
-	}
+    private static final int CHUNK_SIZE_BYTES = 1024 * 1024;
+    private static final int BUFFER_SIZE = 5;
+
+    public static Props props() {
+        return Props.create(LargeMessageProxy.class);
+    }
+	private List<byte[]> messageChunks = new LinkedList<>();
 
 	////////////////////
 	// Actor Messages //
@@ -45,10 +52,12 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 		private ActorRef sender;
 		private ActorRef receiver;
 	}
-	
-	public static class StreamInitialized {}
-	public static class StreamCompleted {}
-	public enum Ack { INSTANCE }
+
+    @Data @NoArgsConstructor @AllArgsConstructor
+    public static class StreamCompleted  implements Serializable {
+        private ActorRef sender;
+        private ActorRef receiver;
+    }
 
 	public static class StreamFailure {
 		private final Throwable cause;
@@ -78,10 +87,9 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 	public Receive createReceive() {
 		return receiveBuilder()
 				.match(LargeMessage.class, this::handle)
-				.match(BytesMessage.class, this::handle)
-				.match(StreamInitialized.class, this::handle)
 				.match(StreamCompleted.class, this::handle)
 				.match(StreamFailure.class, this::handle)
+                .match(byte[].class, this::handle)
 				.matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
 				.build();
 	}
@@ -102,45 +110,71 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 			}
 		}
 
-		Sink<BytesMessage<?>, NotUsed> sink =
-				Sink.actorRefWithAck(
-						receiverProxy,
-						new StreamInitialized(),
-						Ack.INSTANCE,
-						new StreamCompleted(),
-						StreamFailure::new
-				);
+		Sink<byte[], NotUsed> sink = Sink.actorRef(
+		        receiverProxy,
+                new StreamCompleted(this.sender(), receiver));
+		List<byte[]> messageContents;
+		try {
+            messageContents = serialize(message.getMessage());
+        } catch (IOException e) {
+            log().warning("Could not serialize LargeMessage of type {}", message.getMessage().getClass());
+            e.printStackTrace();
+            return;
+        }
 
-		BytesMessage<?> bytesMessage = new BytesMessage<>(message.getMessage(), this.sender(), message.getReceiver());
-		Source<BytesMessage<?>, NotUsed> source = Source.single(bytesMessage);
-		source.runWith(sink, ActorMaterializer.create(this.context().system()));
-		
-		// This will definitely fail in a distributed setting if the serialized message is large!
-		// Solution options:
-		// 1. Serialize the object and send its bytes batch-wise (make sure to use artery's side channel then).
-		// 2. Serialize the object and send its bytes via Akka streaming.
-		// 3. Send the object via Akka's http client-server component.
-		// 4. Other ideas ...
-		//receiverProxy.get().tell(new BytesMessage<>(message.getMessage(), this.sender(), message.getReceiver()), this.self());
+        Source<byte[], NotUsed> source = Source.from(messageContents);
+		source.buffer(BUFFER_SIZE, OverflowStrategy.backpressure())
+                .runWith(sink, ActorMaterializer.create(this.context().system()));
 	}
 
-	private void handle(BytesMessage<?> message) {
-		log().info("Received BytesMessage: {}", message);
-		sender().tell(Ack.INSTANCE, self());
-		// Reassemble the message content, deserialize it and/or load the content from some local location before forwarding its content.
-		message.getReceiver().tell(message.getBytes(), message.getSender());
-	}
-
-	private void handle(StreamInitialized init) {
-		log().info("Stream initialized");
-		sender().tell(Ack.INSTANCE, self());
-	}
+	private void handle(byte[] messageChunk) {
+	    this.messageChunks.add(messageChunk);
+    }
 
 	private void handle(StreamCompleted completed) {
-		log().info("Stream completed");
-	}
+		log().info("Stream completed with {} chunks", this.messageChunks.size());
+		Object message;
+        try {
+            message = deserialize(this.messageChunks);
+        } catch (IOException | ClassNotFoundException e) {
+            log().error("Could not deserialize LargeMessage to {}", completed.receiver);
+            e.printStackTrace();
+            return;
+        }
+
+        completed.receiver.tell(message, completed.sender);
+        messageChunks = new LinkedList<>();
+        log().info("Sent LargeMessage to {}", completed.receiver);
+    }
 
 	private void handle(StreamFailure failed) {
 		log().error(failed.getCause(), "Stream failed");
 	}
+
+    private static List<byte[]> serialize(Object obj) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ObjectOutputStream os = new ObjectOutputStream(out);
+        os.writeObject(obj);
+        byte[] bytes = out.toByteArray();
+        out.close();
+        os.close();
+        List<byte[]> result = new LinkedList<>();
+        for(int i = 0; i < bytes.length; i += CHUNK_SIZE_BYTES) {
+            result.add(Arrays.copyOfRange(bytes, i, i + CHUNK_SIZE_BYTES));
+        }
+        return result;
+    }
+    private static Object deserialize(List<byte[]> data) throws IOException, ClassNotFoundException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+	    for(byte[] i: data) {
+	        out.write(i);
+        }
+        ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
+        ObjectInputStream is = new ObjectInputStream(in);
+        Object result = is.readObject();
+        in.close();
+        is.close();
+        out.close();
+        return result;
+    }
 }
