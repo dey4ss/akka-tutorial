@@ -3,6 +3,7 @@ package de.hpi.ddm.actors;
 import akka.NotUsed;
 import akka.actor.AbstractLoggingActor;
 import akka.actor.ActorRef;
+import akka.actor.ActorSelection;
 import akka.actor.Props;
 import akka.stream.ActorMaterializer;
 import akka.stream.OverflowStrategy;
@@ -59,16 +60,9 @@ public class LargeMessageProxy extends AbstractLoggingActor {
         private ActorRef receiver;
     }
 
+    @Data @AllArgsConstructor
 	public static class StreamFailure {
 		private final Throwable cause;
-
-		public StreamFailure(Throwable cause) {
-			this.cause = cause;
-		}
-
-		public Throwable getCause() {
-			return cause;
-		}
 	}
 	
 	/////////////////
@@ -89,7 +83,7 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 				.match(LargeMessage.class, this::handle)
 				.match(StreamCompleted.class, this::handle)
 				.match(StreamFailure.class, this::handle)
-                .match(byte[].class, this::handle)
+				.match(byte[].class, this::handle)
 				.matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
 				.build();
 	}
@@ -97,17 +91,15 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 	private void handle(LargeMessage<?> message) {
 		ActorRef receiver = message.getReceiver();
 		Duration timeout = Duration.ofSeconds(5);
-		ActorRef receiverProxy = null;
+		ActorRef receiverProxy;
 
-		while (receiverProxy == null) {
-			try {
-				receiverProxy = this.context().actorSelection(receiver.path().child(DEFAULT_NAME))
-						.resolveOne(timeout).toCompletableFuture().get();
-			} catch (InterruptedException | ExecutionException e) {
-				log().error("Could not connect to ReceiverProxy.");
-				e.printStackTrace();
-				return;
-			}
+		try {
+			receiverProxy = this.context().actorSelection(receiver.path().child(DEFAULT_NAME))
+					.resolveOne(timeout).toCompletableFuture().get();
+		} catch (InterruptedException | ExecutionException e) {
+			log().error("Could not connect to ReceiverProxy.");
+			e.printStackTrace();
+			return;
 		}
 
 		Sink<byte[], NotUsed> sink = Sink.actorRef(
