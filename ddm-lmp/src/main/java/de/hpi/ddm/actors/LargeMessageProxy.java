@@ -46,14 +46,6 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 		private ActorRef receiver;
 	}
 
-	@Data @NoArgsConstructor @AllArgsConstructor
-	public static class BytesMessage<T> implements Serializable {
-		private static final long serialVersionUID = 4057807743872319842L;
-		private T bytes;
-		private ActorRef sender;
-		private ActorRef receiver;
-	}
-
     @Data @NoArgsConstructor @AllArgsConstructor
     public static class StreamCompleted  implements Serializable {
         private ActorRef sender;
