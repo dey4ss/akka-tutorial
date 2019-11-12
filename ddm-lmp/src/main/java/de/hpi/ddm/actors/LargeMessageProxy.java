@@ -3,12 +3,15 @@ package de.hpi.ddm.actors;
 import akka.NotUsed;
 import akka.actor.AbstractLoggingActor;
 import akka.actor.ActorRef;
-import akka.actor.ActorSelection;
 import akka.actor.Props;
 import akka.stream.ActorMaterializer;
 import akka.stream.OverflowStrategy;
 import akka.stream.javadsl.Sink;
 import akka.stream.javadsl.Source;
+import com.esotericsoftware.kryo.Kryo;
+import com.esotericsoftware.kryo.io.Input;
+import com.esotericsoftware.kryo.io.Output;
+import com.esotericsoftware.kryo.serializers.FieldSerializer;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -27,7 +30,9 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 	////////////////////////
 
 	public static final String DEFAULT_NAME = "largeMessageProxy";
-    private static final int CHUNK_SIZE_BYTES = 1024 * 1024;
+	private static final int KB = 1024;
+	private static final int MB = KB * KB;
+    private static final int CHUNK_SIZE_BYTES = MB;
     private static final int BUFFER_SIZE = 5;
 
     public static Props props() {
@@ -47,7 +52,15 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 	}
 
     @Data @NoArgsConstructor @AllArgsConstructor
-    public static class StreamCompleted  implements Serializable {
+    public static class BytesMessage<T> implements Serializable {
+        //private static final long serialVersionUID = 4057807743872319842L;
+        private T bytes;
+        //private ActorRef sender;
+        //private ActorRef receiver;
+    }
+
+    @Data @NoArgsConstructor @AllArgsConstructor
+    public static class StreamCompleted {
         private ActorRef sender;
         private ActorRef receiver;
     }
@@ -98,16 +111,11 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 		        receiverProxy,
                 new StreamCompleted(this.sender(), receiver));
 		List<byte[]> messageContents;
-		try {
-            messageContents = serialize(message.getMessage());
-        } catch (IOException e) {
-            log().warning("Could not serialize LargeMessage of type {}", message.getMessage().getClass());
-            e.printStackTrace();
-            return;
-        }
+		BytesMessage<?> bytesMessage = new BytesMessage<>(message.getMessage());
+        messageContents = serialize(bytesMessage);
 
         Source<byte[], NotUsed> source = Source.from(messageContents);
-		source.buffer(BUFFER_SIZE, OverflowStrategy.backpressure())
+        source.buffer(BUFFER_SIZE, OverflowStrategy.backpressure())
                 .runWith(sink, ActorMaterializer.create(this.context().system()));
 	}
 
@@ -117,10 +125,10 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 
 	private void handle(StreamCompleted completed) {
 		log().info("Stream completed with {} chunks", this.messageChunks.size());
-		Object message = null;
+		BytesMessage<?> message = null;
         try {
             message = deserialize(this.messageChunks);
-        } catch (IOException | ClassNotFoundException e) {
+        } catch (IOException e) {
             log().error("Could not deserialize LargeMessage to {}", completed.receiver);
             e.printStackTrace();
         } finally {
@@ -128,8 +136,8 @@ public class LargeMessageProxy extends AbstractLoggingActor {
         }
 
         if (message != null) {
-            completed.receiver.tell(message, completed.sender);
-            log().info("Sent LargeMessage of {} to {}", message.getClass(), completed.receiver);
+            completed.receiver.tell(message.bytes, completed.sender);
+            log().info("Sent LargeMessage of {} to {}", message.bytes.getClass(), completed.receiver);
         }
     }
 
@@ -137,30 +145,47 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 		log().error(failed.getCause(), "Stream failed");
 	}
 
-    private static List<byte[]> serialize(Object obj) throws IOException {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        ObjectOutputStream os = new ObjectOutputStream(out);
-        os.writeObject(obj);
-        byte[] bytes = out.toByteArray();
-        out.close();
-        os.close();
+    private <T> List<byte[]> serialize(BytesMessage<T> message) {
+        Kryo kryo = getKryo();
+        ByteArrayOutputStream stream = new ByteArrayOutputStream();
+        Output output = new Output(stream);
+        kryo.writeObject(output, message);
+        output.close();
+        byte[] buffer = stream.toByteArray();
+
+        try {
+            stream.close();
+        } catch (IOException e) {
+            // ignore
+        }
         List<byte[]> result = new LinkedList<>();
-        for(int i = 0; i < bytes.length; i += CHUNK_SIZE_BYTES) {
-            result.add(Arrays.copyOfRange(bytes, i, i + CHUNK_SIZE_BYTES));
+        for(int i = 0; i < buffer.length; i += CHUNK_SIZE_BYTES) {
+            int end = Math.min(i + CHUNK_SIZE_BYTES, buffer.length);
+            result.add(Arrays.copyOfRange(buffer, i, end));
         }
         return result;
     }
-    private static Object deserialize(List<byte[]> data) throws IOException, ClassNotFoundException {
+    private static BytesMessage<?> deserialize(List<byte[]> data) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
 	    for(byte[] i: data) {
 	        out.write(i);
         }
-        ByteArrayInputStream in = new ByteArrayInputStream(out.toByteArray());
-        ObjectInputStream is = new ObjectInputStream(in);
-        Object result = is.readObject();
-        in.close();
-        is.close();
-        out.close();
-        return result;
+        Kryo kryo = getKryo();
+        BytesMessage<?> message = kryo.readObject(new Input(new ByteArrayInputStream(out.toByteArray())),
+                BytesMessage.class);
+
+        try {
+            out.close();
+        } catch (IOException e) {
+            // ignore
+        }
+        return message;
+    }
+
+    private static Kryo getKryo() {
+	    Kryo kryo = new Kryo();
+        FieldSerializer<?> serializer = new FieldSerializer<BytesMessage<?>>(kryo, BytesMessage.class);
+        kryo.register(BytesMessage.class, serializer);
+        return kryo;
     }
 }
