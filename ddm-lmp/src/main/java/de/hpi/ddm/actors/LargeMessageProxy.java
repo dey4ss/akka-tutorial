@@ -199,10 +199,8 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 
     private static BytesMessage<?> deserialize(byte[] data)  {
         Kryo kryo = getKryo();
-        BytesMessage<?> message = kryo.readObject(new Input(new ByteArrayInputStream(data)),
+        return kryo.readObject(new Input(new ByteArrayInputStream(data)),
                 BytesMessage.class);
-
-        return message;
     }
 
     private static Kryo getKryo() {
