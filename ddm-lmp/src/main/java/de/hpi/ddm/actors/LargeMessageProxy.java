@@ -129,7 +129,7 @@ public class LargeMessageProxy extends AbstractLoggingActor {
         try {
             message = deserialize(this.messageChunks);
         } catch (IOException e) {
-            log().error("Could not deserialize LargeMessage to {}", completed.receiver);
+            log().error("Could not deserialize LargeMessage for {}", completed.receiver);
             e.printStackTrace();
         } finally {
             messageChunks = new LinkedList<>();
@@ -142,7 +142,8 @@ public class LargeMessageProxy extends AbstractLoggingActor {
     }
 
 	private void handle(StreamFailure failed) {
-		log().error(failed.getCause(), "Stream failed");
+		messageChunks = new LinkedList<>();
+	    log().error(failed.getCause(), "Stream failed");
 	}
 
     private <T> List<byte[]> serialize(BytesMessage<T> message) {
