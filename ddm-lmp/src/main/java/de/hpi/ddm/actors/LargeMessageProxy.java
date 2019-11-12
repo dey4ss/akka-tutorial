@@ -53,21 +53,22 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 
     @Data @NoArgsConstructor @AllArgsConstructor
     public static class BytesMessage<T> implements Serializable {
-        //private static final long serialVersionUID = 4057807743872319842L;
+        private static final long serialVersionUID = -4984077707340712941L;
         private T bytes;
-        //private ActorRef sender;
-        //private ActorRef receiver;
+
     }
 
     @Data @NoArgsConstructor @AllArgsConstructor
-    public static class StreamCompleted {
+    public static class StreamCompleted implements Serializable {
+        private static final long serialVersionUID = 2546055321597800174L;
         private ActorRef sender;
         private ActorRef receiver;
     }
 
     @Data @AllArgsConstructor
-	public static class StreamFailure {
-		private final Throwable cause;
+	public static class StreamFailure implements Serializable {
+        private static final long serialVersionUID = 4593304793354806849L;
+        private final Throwable cause;
 	}
 	
 	/////////////////
@@ -112,7 +113,7 @@ public class LargeMessageProxy extends AbstractLoggingActor {
                 new StreamCompleted(this.sender(), receiver));
 		List<byte[]> messageContents;
 		BytesMessage<?> bytesMessage = new BytesMessage<>(message.getMessage());
-        messageContents = serialize(bytesMessage);
+        messageContents = serializeAndSplit(bytesMessage);
 
         Source<byte[], NotUsed> source = Source.from(messageContents);
         source.buffer(BUFFER_SIZE, OverflowStrategy.backpressure())
@@ -127,7 +128,7 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 		log().info("Stream completed with {} chunks", this.messageChunks.size());
 		BytesMessage<?> message = null;
         try {
-            message = deserialize(this.messageChunks);
+            message = joinAndDeserialize(this.messageChunks);
         } catch (IOException e) {
             log().error("Could not deserialize LargeMessage for {}", completed.receiver);
             e.printStackTrace();
@@ -146,7 +147,14 @@ public class LargeMessageProxy extends AbstractLoggingActor {
 	    log().error(failed.getCause(), "Stream failed");
 	}
 
-    private <T> List<byte[]> serialize(BytesMessage<T> message) {
+    private <T> List<byte[]> serializeAndSplit(BytesMessage<T> message) {
+	    return split(serialize(message));
+    }
+    private static BytesMessage<?> joinAndDeserialize(List<byte[]> data) throws IOException {
+	    return deserialize(join(data));
+    }
+
+    private static <T> byte[] serialize(BytesMessage<T> message) {
         Kryo kryo = getKryo();
         ByteArrayOutputStream stream = new ByteArrayOutputStream();
         Output output = new Output(stream);
@@ -159,27 +167,41 @@ public class LargeMessageProxy extends AbstractLoggingActor {
         } catch (IOException e) {
             // ignore
         }
+        return buffer;
+    }
+
+    private static List<byte[]> split(byte[] bytes) {
         List<byte[]> result = new LinkedList<>();
-        for(int i = 0; i < buffer.length; i += CHUNK_SIZE_BYTES) {
-            int end = Math.min(i + CHUNK_SIZE_BYTES, buffer.length);
-            result.add(Arrays.copyOfRange(buffer, i, end));
+        for(int i = 0; i < bytes.length; i += CHUNK_SIZE_BYTES) {
+            int end = Math.min(i + CHUNK_SIZE_BYTES, bytes.length);
+            result.add(Arrays.copyOfRange(bytes, i, end));
         }
         return result;
     }
-    private static BytesMessage<?> deserialize(List<byte[]> data) throws IOException {
+
+    private static byte[] join(List<byte[]> bytes) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-	    for(byte[] i: data) {
-	        out.write(i);
+        byte[] buffer;
+        try {
+            for(byte[] i: bytes) {
+                out.write(i);
+            }
+            buffer = out.toByteArray();
+        } finally {
+            try {
+                out.close();
+            } catch (IOException e) {
+                // ignore
+            }
         }
+        return buffer;
+	}
+
+    private static BytesMessage<?> deserialize(byte[] data)  {
         Kryo kryo = getKryo();
-        BytesMessage<?> message = kryo.readObject(new Input(new ByteArrayInputStream(out.toByteArray())),
+        BytesMessage<?> message = kryo.readObject(new Input(new ByteArrayInputStream(data)),
                 BytesMessage.class);
 
-        try {
-            out.close();
-        } catch (IOException e) {
-            // ignore
-        }
         return message;
     }
 
