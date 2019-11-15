@@ -1,18 +1,19 @@
 package de.hpi.ddm.actors;
 
 import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 
 import akka.actor.AbstractLoggingActor;
 import akka.actor.ActorRef;
 import akka.actor.PoisonPill;
 import akka.actor.Props;
 import akka.actor.Terminated;
+import de.hpi.ddm.structures.Person;
+import it.unimi.dsi.fastutil.Hash;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import scala.Int;
 
 public class Master extends AbstractLoggingActor {
 
@@ -51,6 +52,13 @@ public class Master extends AbstractLoggingActor {
 	public static class RegistrationMessage implements Serializable {
 		private static final long serialVersionUID = 3303081601659723997L;
 	}
+
+	@Data @NoArgsConstructor @AllArgsConstructor
+	public static class ResolvedHint implements Serializable {
+		private static final long serialVersionUID = -2056262088677876779L;
+		private Integer personID;
+		private char resolvedHint;
+	}
 	
 	/////////////////
 	// Actor State //
@@ -61,6 +69,7 @@ public class Master extends AbstractLoggingActor {
 	private final List<ActorRef> workers;
 
 	private long startTime;
+	private Map<Integer, Person> persons;
 	
 	/////////////////////
 	// Actor Lifecycle //
@@ -107,11 +116,10 @@ public class Master extends AbstractLoggingActor {
 			return;
 		}
 		
-		for (String[] line : message.getLines())
-			System.out.println(Arrays.toString(line));
-		
-		this.collector.tell(new Collector.CollectMessage("Processed batch of size " + message.getLines().size()), this.self());
-		this.reader.tell(new Reader.ReadMessage(), this.self());
+		this.persons = parseLines(message.lines);
+		distributeHintHashes();
+		//this.collector.tell(new Collector.CollectMessage("Processed batch of size " + message.getLines().size()), this.self());
+		//this.reader.tell(new Reader.ReadMessage(), this.self());
 	}
 	
 	protected void terminate() {
@@ -139,5 +147,25 @@ public class Master extends AbstractLoggingActor {
 		this.context().unwatch(message.getActor());
 		this.workers.remove(message.getActor());
 //		this.log().info("Unregistered {}", message.getActor());
+	}
+
+	private static Map<Integer, Person> parseLines(List<String[]> lines) {
+		Map<Integer, Person> persons = new HashMap<>();
+		for (String[] line : lines) {
+			Person person = Person.fromList(line);
+			persons.put(person.getId(), person);
+		}
+		return persons;
+	}
+
+	private void distributeHintHashes() {
+		int currentWorkerID = 0;
+		for (Map.Entry<Integer, Person> personEntry : this.persons.entrySet()) {
+			for (String hash : personEntry.getValue().getHints()) {
+				Worker.Hint hint = new Worker.Hint(personEntry.getKey(), hash, personEntry.getValue().getCharSet());
+				this.workers.get(currentWorkerID).tell(hint, self());
+				currentWorkerID = (currentWorkerID + 1) % this.workers.size();
+			}
+		}
 	}
 }
