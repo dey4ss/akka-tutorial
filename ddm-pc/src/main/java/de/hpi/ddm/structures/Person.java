@@ -71,12 +71,9 @@ public class Person {
 	}
 
 	public CharSet popCandidateCharSet() {
-		if (this.candidateCharSets.size() > 0) {
-			CharSet candidate = this.candidateCharSets.get(0);
-			this.candidateCharSets.remove(0);
-			return candidate;
-		}
-		return null;
+		CharSet candidate = this.candidateCharSets.get(0);
+		this.candidateCharSets.remove(0);
+		return candidate;
 	}
 
 	private static Set<Character> parseChars(String string) {
