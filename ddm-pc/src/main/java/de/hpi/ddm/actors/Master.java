@@ -175,7 +175,6 @@ public class Master extends AbstractLoggingActor {
 		if (this.persons.size() == 0) {
 			this.collector.tell(new Collector.CollectMessage(
 					"Processed batch of size " + this.batchSize), this.self());
-			log().info("Processed batch of size " + this.batchSize);
 			this.reader.tell(new Reader.ReadMessage(), this.self());
 		}
 	}
