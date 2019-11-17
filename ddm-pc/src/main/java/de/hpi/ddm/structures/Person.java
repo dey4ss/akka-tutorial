@@ -9,84 +9,84 @@ import java.util.*;
 @Getter @AllArgsConstructor
 public class Person {
 
-    @Getter @AllArgsConstructor
-    public static class CharSet {
-        private final Set<Character> set;
-        private final Character excludedChar;
-    }
+	@Getter @AllArgsConstructor
+	public static class CharSet {
+		private final Set<Character> set;
+		private final Character excludedChar;
+	}
 
-    private final Integer id;
-    private final String name;
-    private final int passwordLength;
-    private final Set<Character> charSet;
-    private final Set<Character> solutionSet;
-    private final String passwordHash;
-    private final List<String> hints;
-    private final List<CharSet> candidateCharSets;
-    private final int solutionSize;
-    @Setter boolean cracked;
+	private final Integer id;
+	private final String name;
+	private final int passwordLength;
+	private final Set<Character> charSet;
+	private final Set<Character> solutionSet;
+	private final String passwordHash;
+	private final List<String> hints;
+	private final List<CharSet> candidateCharSets;
+	private final int solutionSize;
+	@Setter boolean cracked;
 
-    public static Person fromList(String[] list) {
-        Integer id = Integer.valueOf(list[0]);
-        Set<Character> charSet = parseChars(list[2]);
-        int length = Integer.parseInt(list[3]);
-        List<String> hints = getHintHashes(list);
-        List<CharSet> candidateSets = generateCandidates(charSet);
-        int solutionSize = charSet.size() - hints.size();
-        return new Person(
-                id,
-                list[1],
-                length,
-                charSet,
-                new HashSet<>(),
-                list[4],
-                hints,
-                candidateSets,
-                solutionSize,
-                false);
-    }
+	public static Person fromList(String[] list) {
+		Integer id = Integer.valueOf(list[0]);
+		Set<Character> charSet = parseChars(list[2]);
+		int length = Integer.parseInt(list[3]);
+		List<String> hints = getHintHashes(list);
+		List<CharSet> candidateSets = generateCandidates(charSet);
+		int solutionSize = charSet.size() - hints.size();
+		return new Person(
+				id,
+				list[1],
+				length,
+				charSet,
+				new HashSet<>(),
+				list[4],
+				hints,
+				candidateSets,
+				solutionSize,
+				false);
+	}
 
-    public void addChar(char c) {
-        this.solutionSet.add(c);
-    }
+	public void addChar(char c) {
+		this.solutionSet.add(c);
+	}
 
-    public boolean isReadyForCracking() {
-        return this.solutionSet.size() == this.solutionSize;
-    }
+	public boolean isReadyForCracking() {
+		return this.solutionSet.size() == this.solutionSize;
+	}
 
-    public boolean hasCharSetLeft() {
-        return this.candidateCharSets.size() > 0;
-    }
+	public boolean hasCharSetLeft() {
+		return this.candidateCharSets.size() > 0;
+	}
 
-    public CharSet popCandidateCharSet() {
-        if (this.candidateCharSets.size() > 0) {
-            CharSet candidate = this.candidateCharSets.get(0);
-            this.candidateCharSets.remove(0);
-            return candidate;
-        }
-        return null;
-    }
+	public CharSet popCandidateCharSet() {
+		if (this.candidateCharSets.size() > 0) {
+			CharSet candidate = this.candidateCharSets.get(0);
+			this.candidateCharSets.remove(0);
+			return candidate;
+		}
+		return null;
+	}
 
-    private static Set<Character> parseChars(String string) {
-        Set<Character> set = new HashSet<>();
-        for (int i = 0; i < string.length(); i++) {
-            set.add(string.charAt(i));
-        }
-        return set;
-    }
+	private static Set<Character> parseChars(String string) {
+		Set<Character> set = new HashSet<>();
+		for (int i = 0; i < string.length(); i++) {
+			set.add(string.charAt(i));
+		}
+		return set;
+	}
 
-    private static List<String> getHintHashes(String[] list) {
-        return new ArrayList<>(Arrays.asList(list).subList(5, list.length));
-    }
+	private static List<String> getHintHashes(String[] list) {
+		return new ArrayList<>(Arrays.asList(list).subList(5, list.length));
+	}
 
-    private static List<CharSet> generateCandidates(Set<Character> set) {
-        List<CharSet> candidates = new LinkedList<>();
-        for (Character c : set) {
-            Set<Character> candidate = new HashSet<>(set);
-            candidate.remove(c);
-            candidates.add(new CharSet(candidate, c));
-        }
-        return candidates;
-    }
+	private static List<CharSet> generateCandidates(Set<Character> set) {
+		List<CharSet> candidates = new LinkedList<>();
+		for (Character c : set) {
+			Set<Character> candidate = new HashSet<>(set);
+			candidate.remove(c);
+			candidates.add(new CharSet(candidate, c));
+		}
+		return candidates;
+	}
 
 }

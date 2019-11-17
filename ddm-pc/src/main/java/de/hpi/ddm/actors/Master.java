@@ -69,11 +69,11 @@ public class Master extends AbstractLoggingActor {
 	}
 
 	@Data @NoArgsConstructor @AllArgsConstructor
-    public static class Solution implements Serializable {
-        private static final long serialVersionUID = -2964092903137759190L;
-        private Integer personID;
-	    private String solution;
-    }
+	public static class Solution implements Serializable {
+		private static final long serialVersionUID = -2964092903137759190L;
+		private Integer personID;
+		private String solution;
+	}
 
 	/////////////////
 	// Actor State //
@@ -107,9 +107,9 @@ public class Master extends AbstractLoggingActor {
 				.match(StartMessage.class, this::handle)
 				.match(BatchMessage.class, this::handle)
 				.match(WorkRequest.class, this::handle)
-                .match(ExcludedChar.class, this::handle)
+				.match(ExcludedChar.class, this::handle)
 				.match(IncludedChar.class, this::handle)
-                .match(Solution.class, this::handle)
+				.match(Solution.class, this::handle)
 				.match(Terminated.class, this::handle)
 				.match(RegistrationMessage.class, this::handle)
 				.matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
@@ -148,12 +148,12 @@ public class Master extends AbstractLoggingActor {
 		sendWorkItem(this.sender());
 	}
 
-    private void handle(ExcludedChar excludedChar) {
+	private void handle(ExcludedChar excludedChar) {
 		if (this.persons.containsKey(excludedChar.personID)) {
 			Person person = this.persons.get(excludedChar.personID);
 			person.getHints().remove(excludedChar.hash);
 		}
-    }
+	}
 
 	private void handle(IncludedChar includedChar) {
 		Person person = this.persons.get(includedChar.personID);
@@ -161,17 +161,17 @@ public class Master extends AbstractLoggingActor {
 	}
 
 	private void handle(Solution solution) {
-	    Person person = this.persons.get(solution.personID);
-	    log().info("Password of person {} ({}): {}", person.getId(), person.getName(), solution.solution);
-	    this.persons.remove(person.getId());
-	    if (this.persons.size() == 0) {
-            this.collector.tell(new Collector.CollectMessage(
-                    "Processed batch of size " + this.batchSize), this.self());
-            this.reader.tell(new Reader.ReadMessage(), this.self());
-        }
-    }
+		Person person = this.persons.get(solution.personID);
+		log().info("Password of person {} ({}): {}", person.getId(), person.getName(), solution.solution);
+		this.persons.remove(person.getId());
+		if (this.persons.size() == 0) {
+			this.collector.tell(new Collector.CollectMessage(
+					"Processed batch of size " + this.batchSize), this.self());
+			this.reader.tell(new Reader.ReadMessage(), this.self());
+		}
+	}
 
-    protected void terminate() {
+	protected void terminate() {
 		this.reader.tell(PoisonPill.getInstance(), ActorRef.noSender());
 		this.collector.tell(PoisonPill.getInstance(), ActorRef.noSender());
 
