@@ -19,7 +19,8 @@ public class Person {
 	private final String name;
 	private final int passwordLength;
 	private final Set<Character> charSet;
-	private final Set<Character> solutionSet;
+	private final Set<Character> solutionSet = new HashSet<>();
+	private final Set<Character> excludedChars = new HashSet<>();
 	private final String passwordHash;
 	private final List<String> hints;
 	private final List<CharSet> candidateCharSets;
@@ -38,7 +39,6 @@ public class Person {
 				list[1],
 				length,
 				charSet,
-				new HashSet<>(),
 				list[4],
 				hints,
 				candidateSets,
@@ -50,8 +50,20 @@ public class Person {
 		this.solutionSet.add(c);
 	}
 
+	public void dropChar(char c) {
+		this.excludedChars.add(c);
+	}
+
 	public boolean isReadyForCracking() {
-		return this.solutionSet.size() == this.solutionSize;
+		if (this.solutionSet.size() == this.solutionSize) {
+			return true;
+		}
+		if (this.excludedChars.size() == this.charSet.size() - this.solutionSize) {
+			this.solutionSet.addAll(this.charSet);
+			this.solutionSet.removeAll(this.excludedChars);
+			return true;
+		}
+		return false;
 	}
 
 	public boolean hasCharSetLeft() {

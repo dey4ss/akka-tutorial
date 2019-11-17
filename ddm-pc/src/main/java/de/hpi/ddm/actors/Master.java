@@ -147,6 +147,7 @@ public class Master extends AbstractLoggingActor {
 	private void handle(ExcludedChar excludedChar) {
 		if (this.persons.containsKey(excludedChar.personID)) {
 			Person person = this.persons.get(excludedChar.personID);
+			person.dropChar(excludedChar.value);
 			person.getHints().remove(excludedChar.hash);
 		}
 	}
