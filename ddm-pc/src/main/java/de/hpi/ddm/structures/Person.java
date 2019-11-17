@@ -41,7 +41,7 @@ public class Person {
 		if (this.solutionSet.size() == this.solutionSize) {
 			return true;
 		}
-		if (this.excludedChars.size() == this.charSet.size() - this.solutionSize) {
+		if (this.excludedChars.size() == this.charSet.size() - this.solutionSize + 1) {
 			this.solutionSet.addAll(this.charSet);
 			this.solutionSet.removeAll(this.excludedChars);
 			return true;
