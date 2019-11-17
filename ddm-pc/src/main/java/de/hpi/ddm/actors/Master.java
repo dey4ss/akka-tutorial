@@ -131,12 +131,7 @@ public class Master extends AbstractLoggingActor {
 
 		this.batchSize = message.getLines().size();
 		this.persons = parseLines(message.lines);
-		Set<ActorRef> workers = new HashSet<>(this.waitingWorkers);
-
-		for (ActorRef worker : workers) {
-			sendWorkItem(worker);
-			this.waitingWorkers.remove(worker);
-		}
+		distributeWork();
 	}
 
 	private void handle(WorkRequest workRequest) {
@@ -146,6 +141,7 @@ public class Master extends AbstractLoggingActor {
 		}
 
 		sendWorkItem(this.sender());
+		distributeWork();
 	}
 
 	private void handle(ExcludedChar excludedChar) {
@@ -220,6 +216,7 @@ public class Master extends AbstractLoggingActor {
 				return;
 			}
 		}
+		this.waitingWorkers.add(worker);
 	}
 
 	private void sendHints(ActorRef worker, Person person) {
@@ -244,6 +241,14 @@ public class Master extends AbstractLoggingActor {
 
 	private static List<String> copy(List<String> list) {
 		return new LinkedList<>(list);
+	}
+
+	private void distributeWork() {
+		Set<ActorRef> workers = new HashSet<>(this.waitingWorkers);
+		for (ActorRef worker : workers) {
+			this.waitingWorkers.remove(worker);
+			sendWorkItem(worker);
+		}
 	}
 
 }
