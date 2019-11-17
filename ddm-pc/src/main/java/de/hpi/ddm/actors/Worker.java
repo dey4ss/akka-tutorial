@@ -20,7 +20,7 @@ import java.io.Serializable;
 import java.io.UnsupportedEncodingException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 public class Worker extends AbstractLoggingActor {
@@ -28,7 +28,7 @@ public class Worker extends AbstractLoggingActor {
 	////////////////////////
 	// Actor Construction //
 	////////////////////////
-	
+
 	public static final String DEFAULT_NAME = "worker";
 
 	public static Props props() {
@@ -38,16 +38,31 @@ public class Worker extends AbstractLoggingActor {
 	public Worker() {
 		this.cluster = Cluster.get(this.context().system());
 	}
-	
+
 	////////////////////
 	// Actor Messages //
 	////////////////////
 
+	@Data
+	public static class MasterHello implements Serializable {
+		private static final long serialVersionUID = 6508051783772496189L;
+	}
+
 	@Data @NoArgsConstructor @AllArgsConstructor
-	public static class Hint implements Serializable {
+	public static class PermutationsRequest implements Serializable {
 		private static final long serialVersionUID = 2767978393215113993L;
 		private Integer personID;
+		private List<String> hashes;
+		private Set<Character> charSet;
+		private Character missingChar;
+	}
+
+	@Data @NoArgsConstructor @AllArgsConstructor
+	public static class CrackingRequest implements Serializable {
+		private static final long serialVersionUID = -7373650189022842961L;
+		private Integer personID;
 		private String hash;
+		private int length;
 		private Set<Character> charSet;
 	}
 
@@ -57,7 +72,8 @@ public class Worker extends AbstractLoggingActor {
 
 	private Member masterSystem;
 	private final Cluster cluster;
-	
+	private ActorRef master;
+
 	/////////////////////
 	// Actor Lifecycle //
 	/////////////////////
@@ -65,7 +81,7 @@ public class Worker extends AbstractLoggingActor {
 	@Override
 	public void preStart() {
 		Reaper.watchWithDefaultReaper(this);
-		
+
 		this.cluster.subscribe(this.self(), MemberUp.class, MemberRemoved.class);
 	}
 
@@ -78,9 +94,11 @@ public class Worker extends AbstractLoggingActor {
 	// Actor Behavior //
 	////////////////////
 
-	@Getter @AllArgsConstructor
+	@Getter
+	@AllArgsConstructor
 	private static class Finished extends Error {
-		private final char[] solution;
+		private final String solution;
+		private final String hash;
 	}
 
 	@Override
@@ -88,10 +106,17 @@ public class Worker extends AbstractLoggingActor {
 		return receiveBuilder()
 				.match(CurrentClusterState.class, this::handle)
 				.match(MemberUp.class, this::handle)
+				.match(MasterHello.class, this::handle)
 				.match(MemberRemoved.class, this::handle)
-				.match(Hint.class, this::handle)
+				.match(PermutationsRequest.class, this::handle)
+				.match(CrackingRequest.class, this::handle)
 				.matchAny(object -> this.log().info("Received unknown message: \"{}\"", object.toString()))
 				.build();
+	}
+
+	private void handle(MasterHello masterHello) {
+		this.master = this.sender();
+		requestWork();
 	}
 
 	private void handle(CurrentClusterState message) {
@@ -108,64 +133,75 @@ public class Worker extends AbstractLoggingActor {
 	private void register(Member member) {
 		if ((this.masterSystem == null) && member.hasRole(MasterSystem.MASTER_ROLE)) {
 			this.masterSystem = member;
-			
+
 			this.getContext()
-				.actorSelection(member.address() + "/user/" + Master.DEFAULT_NAME)
-				.tell(new Master.RegistrationMessage(), this.self());
+					.actorSelection(member.address() + "/user/" + Master.DEFAULT_NAME)
+					.tell(new Master.RegistrationMessage(), this.self());
 		}
 	}
-	
+
 	private void handle(MemberRemoved message) {
 		if (this.masterSystem.equals(message.member()))
 			this.self().tell(PoisonPill.getInstance(), ActorRef.noSender());
 	}
 
-	private void handle(Hint hint) {
-		char[] chars = convertCharSet(hint.charSet);
-		System.out.println(hint.hash);
-		char[] solution = new char[0];
+	private void handle(PermutationsRequest request) {
+		char[] chars = convertCharSet(request.charSet);
+		boolean isIncluded = true;
+
 		try {
-			heapPermutation(chars, chars.length - 1, chars.length, hint.hash);
+			heapPermutation(chars, chars.length, chars.length, request.hashes);
 		} catch (Finished f) {
-			solution = f.getSolution();
+			isIncluded = false;
+			String hash = f.getHash();
+			Master.ExcludedChar excludedChar = new Master.ExcludedChar(request.personID, request.missingChar, hash);
+			//log().info("Char {} is not in password of person {}", hint.missingChar, hint.personID);
+			this.sender().tell(excludedChar, this.self());
 		}
-
-		if (solution.length == 0) {
-			log().error("Could not find permutation for hint");
+		if (isIncluded) {
+			this.master.tell(new Master.IncludedChar(request.personID, request.missingChar), this.self());
+			//log().info("Character {} is in password of person {}", hint.missingChar, hint.personID);
 		}
-
+		requestWork();
 	}
-	
+
+	private void handle(CrackingRequest request) {
+		try {
+			crack(request.hash, request.charSet, request.length, "");
+		} catch (Finished f) {
+			String solution = f.getSolution();
+			this.sender().tell(new Master.Solution(request.personID, solution), this.self());
+		}
+		requestWork();
+	}
+
 	private String hash(String line) {
 		try {
 			MessageDigest digest = MessageDigest.getInstance("SHA-256");
 			byte[] hashedBytes = digest.digest(String.valueOf(line).getBytes("UTF-8"));
-			
+
 			StringBuffer stringBuffer = new StringBuffer();
 			for (int i = 0; i < hashedBytes.length; i++) {
 				stringBuffer.append(Integer.toString((hashedBytes[i] & 0xff) + 0x100, 16).substring(1));
 			}
 			return stringBuffer.toString();
-		}
-		catch (NoSuchAlgorithmException | UnsupportedEncodingException e) {
+		} catch (NoSuchAlgorithmException | UnsupportedEncodingException e) {
 			throw new RuntimeException(e.getMessage());
 		}
 	}
-	
-	// Generating all permutations of an array using Heap's Algorithm
-	// https://en.wikipedia.org/wiki/Heap's_algorithm
-	// https://www.geeksforgeeks.org/heaps-algorithm-for-generating-permutations/
-	private void heapPermutation(char[] a, int size, int n, String hash) throws Finished {
-		// If size is 1, store the obtained permutation
+
+	private void heapPermutation(char[] a, int size, int n, List<String> hashes) throws Finished {
 		if (size == 1) {
 			String permutation = new String(a);
-			if (hasHash(permutation, hash)) {
-				throw new Finished(a);
+			for (String hash : hashes) {
+				if (hasHash(permutation, hash)) {
+					throw new Finished(permutation, hash);
+				}
 			}
 		}
 
 		for (int i = 0; i < size; i++) {
-			heapPermutation(a, size - 1, n, hash);
+			heapPermutation(a, size - 1, n, hashes);
 
 			// If size is odd, swap first and last element
 			if (size % 2 == 1) {
@@ -183,6 +219,19 @@ public class Worker extends AbstractLoggingActor {
 		}
 	}
 
+	private void crack(String hash, Set<Character> charSet, int pendingChars, String prefix) {
+		if (pendingChars == 0) {
+			if (hasHash(prefix, hash)) {
+				throw new Finished(prefix, hash);
+			}
+			return;
+		}
+
+		for (Object c : charSet.toArray()) {
+			crack(hash, charSet, pendingChars - 1, prefix + c);
+		}
+	}
+
 	private char[] convertCharSet(Set<Character> charSet) {
 		char[] chars = new char[charSet.size()];
 		Object[] characterSet = charSet.toArray();
@@ -193,18 +242,10 @@ public class Worker extends AbstractLoggingActor {
 	}
 
 	private boolean hasHash(String string, String hash) {
-		if (string.equals("HJKGDEFBIC")) System.out.println("got one");
 		return hash.equals(hash(string));
 	}
 
-	public char resolve(char[] chars, Set<Character> charSet) {
-		System.out.println(chars);
-		Set<Character> usedChars = new HashSet<>();
-		Set<Character> charSetCopy = charSet;
-		for (char c : chars) {
-			usedChars.add(c);
-		}
-		charSetCopy.removeAll(usedChars);
-		return charSetCopy.iterator().next();
+	private void requestWork() {
+		this.master.tell(new Master.WorkRequest(), this.self());
 	}
- }
+}
