@@ -1,6 +1,8 @@
 package de.hpi.ddm.actors;
 
 import akka.actor.*;
+import de.hpi.ddm.structures.CharSetManager;
+import de.hpi.ddm.structures.Hint;
 import de.hpi.ddm.structures.Person;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -87,6 +89,7 @@ public class Master extends AbstractLoggingActor {
 
 	private long startTime;
 	private Map<Integer, Person> persons;
+	private CharSetManager charSetManager;
 
 	/////////////////////
 	// Actor Lifecycle //
@@ -130,6 +133,7 @@ public class Master extends AbstractLoggingActor {
 		}
 
 		this.batchSize = message.getLines().size();
+		this.charSetManager = CharSetManager.fromMessageLine(message.lines.get(0));
 		this.persons = parseLines(message.lines);
 		distributeWork();
 	}
@@ -148,7 +152,12 @@ public class Master extends AbstractLoggingActor {
 		if (this.persons.containsKey(excludedChar.personID)) {
 			Person person = this.persons.get(excludedChar.personID);
 			person.dropChar(excludedChar.value);
-			person.getHints().remove(excludedChar.hash);
+			for (Hint hint : person.getHints()) {
+				if(hint.getValue().equals(excludedChar.hash)) {
+					person.getHints().remove(hint);
+					return;
+				}
+			}
 		}
 	}
 
@@ -166,6 +175,7 @@ public class Master extends AbstractLoggingActor {
 		if (this.persons.size() == 0) {
 			this.collector.tell(new Collector.CollectMessage(
 					"Processed batch of size " + this.batchSize), this.self());
+			log().info("Processed batch of size " + this.batchSize);
 			this.reader.tell(new Reader.ReadMessage(), this.self());
 		}
 	}
@@ -210,23 +220,22 @@ public class Master extends AbstractLoggingActor {
 	private void sendWorkItem(ActorRef worker) {
 		for (Map.Entry<Integer, Person> personEntry : this.persons.entrySet()) {
 			Person person = personEntry.getValue();
-			if (!person.isReadyForCracking() && person.hasCharSetLeft()) {
-				sendHints(worker, person);
-				return;
-			}
 			if (person.isReadyForCracking() && !person.isCracked()) {
 				sendCrackingRequest(worker, person);
 				return;
 			}
 		}
+		if (charSetManager.hasNext()) {
+			sendHints(worker, collectHints());
+			return;
+		}
 		this.waitingWorkers.add(worker);
 	}
 
-	private void sendHints(ActorRef worker, Person person) {
-		Person.CharSet charSet = person.popCandidateCharSet();
+	private void sendHints(ActorRef worker, Set<Hint> hints) {
+		CharSetManager.CharSet charSet = this.charSetManager.next();
 		Worker.PermutationsRequest request = new Worker.PermutationsRequest(
-				person.getId(),
-				copy(person.getHints()),
+				hints,
 				charSet.getSet(),
 				charSet.getExcludedChar());
 		worker.tell(request, this.self());
@@ -242,16 +251,20 @@ public class Master extends AbstractLoggingActor {
 		person.setCracked(true);
 	}
 
-	private static List<String> copy(List<String> list) {
-		return new LinkedList<>(list);
-	}
-
 	private void distributeWork() {
 		Set<ActorRef> workers = new HashSet<>(this.waitingWorkers);
 		for (ActorRef worker : workers) {
 			this.waitingWorkers.remove(worker);
 			sendWorkItem(worker);
 		}
+	}
+
+	private Set<Hint> collectHints() {
+		Set<Hint> result = new HashSet<>();
+		for (Map.Entry<Integer, Person> person : this.persons.entrySet()) {
+			result.addAll(person.getValue().getHints());
+		}
+		return result;
 	}
 
 }
