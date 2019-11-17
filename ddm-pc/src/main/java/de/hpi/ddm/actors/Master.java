@@ -153,8 +153,10 @@ public class Master extends AbstractLoggingActor {
 	}
 
 	private void handle(IncludedChar includedChar) {
-		Person person = this.persons.get(includedChar.personID);
-		person.addChar(includedChar.value);
+        if (this.persons.containsKey(includedChar.personID)) {
+            Person person = this.persons.get(includedChar.personID);
+            person.addChar(includedChar.value);
+        }
 	}
 
 	private void handle(Solution solution) {
