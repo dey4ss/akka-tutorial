@@ -131,8 +131,9 @@ public class Master extends AbstractLoggingActor {
 
 		this.batchSize = message.getLines().size();
 		this.persons = parseLines(message.lines);
+		Set<ActorRef> workers = new HashSet<>(this.waitingWorkers);
 
-		for (ActorRef worker : this.waitingWorkers) {
+		for (ActorRef worker : workers) {
 			sendWorkItem(worker);
 			this.waitingWorkers.remove(worker);
 		}
