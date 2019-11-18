@@ -1,5 +1,6 @@
 package de.hpi.ddm.structures;
 
+import javafx.util.Pair;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
@@ -13,31 +14,50 @@ public class CharSetManager {
         private final Character excludedChar;
     }
 
-    private final Set<Character> originalSet;
-    private List<CharSet> charSets;
+    private final List<CharSet> charSets;
+    private final Map<Character, Pair<Set<Integer>, Set<Hint>>> solutionInfo;
+    private final int batchSize;
+    private int currentIndex;
 
     public static CharSetManager fromMessageLine(String[] line) {
         return new CharSetManager(line[2]);
     }
 
     private CharSetManager(String chars) {
-        this.originalSet = parseChars(chars);
-        this.charSets = generateSubsets(this.originalSet);
+        this.charSets = generateSubsets(parseChars(chars));
+        this.solutionInfo = new HashMap<>();
+        initializeSolutionInfo();
+        this.batchSize = 2;
+        this.currentIndex = 0;
+    }
+
+    public void handleIncludedChar(char c, Integer personID) {
+        this.solutionInfo.get(c).getKey().add(personID);
+    }
+
+    public void handleExcludedChar(char c, Integer personID, String hash) {
+        this.solutionInfo.get(c).getValue().add(new Hint(personID, hash));
     }
 
     public boolean hasNext() {
-        return this.charSets.size() > 0;
+        boolean anySetNotCompleted = false;
+        for(Character c : this.solutionInfo.keySet()) {
+            anySetNotCompleted = anySetNotCompleted || isNotCompleted(c);
+        }
+        return anySetNotCompleted;
     }
 
     public CharSet next() {
-        CharSet candidate = this.charSets.get(0);
-        this.charSets.remove(0);
-        return candidate;
-    }
+        if (!hasNext()) {
+            return null;
+        }
+        int index = this.currentIndex;
+        this.currentIndex = getNextIndex(index);
 
-    public void reset() {
-        this.charSets = generateSubsets(this.originalSet);
-        Collections.reverse(charSets);
+        if (isNotCompleted(this.charSets.get(currentIndex).excludedChar)) {
+            return this.charSets.get(currentIndex);
+        }
+        return next();
     }
 
     public static Set<Character> parseChars(String string) {
@@ -56,6 +76,21 @@ public class CharSetManager {
             charSets.add(new CharSet(set, c));
         }
         return charSets;
+    }
+
+    private void initializeSolutionInfo() {
+        for(CharSet charSet : this.charSets) {
+            this.solutionInfo.put(charSet.excludedChar, new Pair<>(new HashSet<>(), new HashSet<>()));
+        }
+    }
+
+    private boolean isNotCompleted(Character c) {
+        Pair<Set<Integer>, Set<Hint>> solutionInfo =  this.solutionInfo.get(c);
+        return solutionInfo.getKey().size() + solutionInfo.getValue().size() < this.batchSize;
+    }
+
+    private int getNextIndex(int current) {
+        return (current + 1) % this.charSets.size();
     }
 
 }

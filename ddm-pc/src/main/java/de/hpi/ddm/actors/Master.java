@@ -149,6 +149,7 @@ public class Master extends AbstractLoggingActor {
 	}
 
 	private void handle(ExcludedChar excludedChar) {
+		this.charSetManager.handleExcludedChar(excludedChar.value, excludedChar.personID, excludedChar.hash);
 		if (this.persons.containsKey(excludedChar.personID)) {
 			Person person = this.persons.get(excludedChar.personID);
 			person.dropChar(excludedChar.value);
@@ -162,6 +163,7 @@ public class Master extends AbstractLoggingActor {
 	}
 
 	private void handle(IncludedChar includedChar) {
+		this.charSetManager.handleIncludedChar(includedChar.value, includedChar.personID);
         if (this.persons.containsKey(includedChar.personID)) {
             Person person = this.persons.get(includedChar.personID);
             person.addChar(includedChar.value);
@@ -219,21 +221,16 @@ public class Master extends AbstractLoggingActor {
 	private void sendWorkItem(ActorRef worker) {
 		for (Map.Entry<Integer, Person> personEntry : this.persons.entrySet()) {
 			Person person = personEntry.getValue();
-			if (person.isReadyForCracking() && !person.isCracked()) {
+			if (person.isReadyForCracking() && !person.isBeingCracked()) {
 				sendCrackingRequest(worker, person);
 				return;
 			}
 		}
-		if (this.charSetManager.hasNext()) {
+		if (this.persons.size() > 0 && this.charSetManager.hasNext()) {
 			sendHints(worker, collectHints());
 			return;
 		}
 
-		if (this.persons.size() > 0) {
-			this.charSetManager.reset();
-			sendHints(worker, collectHints());
-			return;
-		}
 		this.waitingWorkers.add(worker);
 	}
 
@@ -253,7 +250,7 @@ public class Master extends AbstractLoggingActor {
 				person.getPasswordLength(),
 				person.getSolutionSet());
 		worker.tell(request, this.self());
-		person.setCracked(true);
+		person.setBeingCracked(true);
 	}
 
 	private void distributeWork() {

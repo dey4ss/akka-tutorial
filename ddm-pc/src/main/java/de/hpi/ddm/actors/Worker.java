@@ -143,7 +143,7 @@ public class Worker extends AbstractLoggingActor {
 			this.self().tell(PoisonPill.getInstance(), ActorRef.noSender());
 	}
 	
-	private void handle(PermutationsRequest request) { 
+	private void handle(PermutationsRequest request) {
 		char[] chars = convertCharSet(request.charSet);
 		Set<Hint> result = new HashSet<>();
 		Set<Integer> handledIDs = new HashSet<>();

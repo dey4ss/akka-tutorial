@@ -18,7 +18,7 @@ public class Person {
 	private final String passwordHash;
 	private final Set<Hint> hints;
 	private final int solutionSize;
-	@Setter boolean cracked;
+	@Setter boolean beingCracked;
 
 	public static Person fromList(String[] list) {
 		Integer id = Integer.valueOf(list[0]);
@@ -41,7 +41,7 @@ public class Person {
 		if (this.solutionSet.size() == this.solutionSize) {
 			return true;
 		}
-		if (this.excludedChars.size() == Math.max(this.charSet.size() - this.solutionSize, 3)) {
+		if (this.charSet.size() - this.excludedChars.size() <= Math.max(this.solutionSize, 4)) {
 			this.solutionSet.addAll(this.charSet);
 			this.solutionSet.removeAll(this.excludedChars);
 			return true;
