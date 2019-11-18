@@ -224,7 +224,13 @@ public class Master extends AbstractLoggingActor {
 				return;
 			}
 		}
-		if (charSetManager.hasNext()) {
+		if (this.charSetManager.hasNext()) {
+			sendHints(worker, collectHints());
+			return;
+		}
+
+		if (this.persons.size() > 0) {
+			this.charSetManager.reset();
 			sendHints(worker, collectHints());
 			return;
 		}

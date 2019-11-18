@@ -3,10 +3,7 @@ package de.hpi.ddm.structures;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
-import java.util.HashSet;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 public class CharSetManager {
 
@@ -16,14 +13,16 @@ public class CharSetManager {
         private final Character excludedChar;
     }
 
-    private final List<CharSet> charSets;
+    private final Set<Character> originalSet;
+    private List<CharSet> charSets;
 
     public static CharSetManager fromMessageLine(String[] line) {
         return new CharSetManager(line[2]);
     }
 
     private CharSetManager(String chars) {
-        this.charSets = generateSubsets(parseChars(chars));
+        this.originalSet = parseChars(chars);
+        this.charSets = generateSubsets(this.originalSet);
     }
 
     public boolean hasNext() {
@@ -34,6 +33,11 @@ public class CharSetManager {
         CharSet candidate = this.charSets.get(0);
         this.charSets.remove(0);
         return candidate;
+    }
+
+    public void reset() {
+        this.charSets = generateSubsets(this.originalSet);
+        Collections.reverse(charSets);
     }
 
     public static Set<Character> parseChars(String string) {

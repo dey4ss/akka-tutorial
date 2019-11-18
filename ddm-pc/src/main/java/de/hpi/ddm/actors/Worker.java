@@ -21,8 +21,7 @@ import java.io.Serializable;
 import java.io.UnsupportedEncodingException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.*;
 
 public class Worker extends AbstractLoggingActor {
 
@@ -250,9 +249,10 @@ public class Worker extends AbstractLoggingActor {
 
 	private char[] convertCharSet(Set<Character> charSet) {
 		char[] chars = new char[charSet.size()];
-		Object[] characterSet = charSet.toArray();
-		for (int i = 0; i < characterSet.length; i++) {
-			chars[i] = (Character) characterSet[i];
+		List<Character> list = Arrays.asList(charSet.toArray(new Character[0]));
+		Collections.shuffle(list);
+		for (int i = 0; i < list.size(); i++) {
+			chars[i] = list.get(i);
 		}
 		return chars;
 	}
