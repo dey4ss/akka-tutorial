@@ -19,15 +19,15 @@ public class CharSetManager {
     private final int batchSize;
     private int currentIndex;
 
-    public static CharSetManager fromMessageLine(String[] line) {
-        return new CharSetManager(line[2]);
+    public static CharSetManager fromMessageLine(String[] line, int batchSize) {
+        return new CharSetManager(line[2], batchSize);
     }
 
-    private CharSetManager(String chars) {
+    private CharSetManager(String chars, int batchSize) {
         this.charSets = generateSubsets(parseChars(chars));
         this.solutionInfo = new HashMap<>();
         initializeSolutionInfo();
-        this.batchSize = 2;
+        this.batchSize = batchSize;
         this.currentIndex = 0;
     }
 
@@ -47,9 +47,9 @@ public class CharSetManager {
         return anySetNotCompleted;
     }
 
-    public CharSet next() {
+    public CharSet next() throws IndexOutOfBoundsException {
         if (!hasNext()) {
-            return null;
+            throw new IndexOutOfBoundsException("No more CharSets left");
         }
         int index = this.currentIndex;
         this.currentIndex = getNextIndex(index);

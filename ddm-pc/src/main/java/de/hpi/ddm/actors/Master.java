@@ -133,7 +133,7 @@ public class Master extends AbstractLoggingActor {
 		}
 
 		this.batchSize = message.getLines().size();
-		this.charSetManager = CharSetManager.fromMessageLine(message.lines.get(0));
+		this.charSetManager = CharSetManager.fromMessageLine(message.lines.get(0), this.batchSize);
 		this.persons = parseLines(message.lines);
 		distributeWork();
 	}
@@ -227,8 +227,13 @@ public class Master extends AbstractLoggingActor {
 			}
 		}
 		if (this.persons.size() > 0 && this.charSetManager.hasNext()) {
-			sendHints(worker, collectHints());
-			return;
+			try {
+				sendHints(worker, collectHints());
+				return;
+			}
+			catch (IndexOutOfBoundsException e) {
+				// pass
+			}
 		}
 
 		this.waitingWorkers.add(worker);
