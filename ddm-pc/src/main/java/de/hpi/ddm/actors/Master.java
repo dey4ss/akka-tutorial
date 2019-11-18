@@ -269,7 +269,9 @@ public class Master extends AbstractLoggingActor {
 	private Set<Hint> collectHints() {
 		Set<Hint> result = new HashSet<>();
 		for (Map.Entry<Integer, Person> person : this.persons.entrySet()) {
-			result.addAll(person.getValue().getHints());
+			if (!person.getValue().isBeingCracked()) {
+				result.addAll(person.getValue().getHints());
+			}
 		}
 		return result;
 	}
