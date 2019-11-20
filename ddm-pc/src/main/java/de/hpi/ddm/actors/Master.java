@@ -25,6 +25,7 @@ public class Master extends AbstractLoggingActor {
 	}
 
 	public Master(final ActorRef reader, final ActorRef collector) {
+		this.batchNumber = 0;
 		this.reader = reader;
 		this.collector = collector;
 		this.workers = new ArrayList<>();
@@ -63,12 +64,14 @@ public class Master extends AbstractLoggingActor {
 		private Integer personID;
 		private char value;
 		private String hash;
+		private int batchNumber;
 	}
 
 	@Data @NoArgsConstructor @AllArgsConstructor
 	public static class CompletedChunk implements Serializable {
 		private static final long serialVersionUID = 2424969000764642610L;
 		private char missingChar;
+		private int batchNumber;
 	}
 
 	@Data @NoArgsConstructor @AllArgsConstructor
@@ -87,6 +90,7 @@ public class Master extends AbstractLoggingActor {
 	private final List<ActorRef> workers;
 	private final Set<Integer> completedPersons;
 	private Set<ActorRef> waitingWorkers;
+	private int batchNumber;
 
 	private long startTime;
 	private Map<Integer, Person> persons;
@@ -134,6 +138,7 @@ public class Master extends AbstractLoggingActor {
 		}
 
 		this.persons = parseLines(message.lines);
+		this.batchNumber++;
 		this.charSetManager = CharSetManager.fromMessageLine(message.lines.get(0), this.persons.keySet());
 		distributeWork();
 	}
@@ -153,20 +158,25 @@ public class Master extends AbstractLoggingActor {
 	}
 
 	private void handle(ExcludedChar excludedChar) {
-		if (!this.completedPersons.contains(excludedChar.personID)) {
-			this.charSetManager.handleExcludedChar(excludedChar.value, excludedChar.personID);
-			Person person = this.persons.get(excludedChar.personID);
-			person.dropChar(excludedChar.value);
-			for (Hint hint : person.getHints()) {
-				if(hint.getValue().equals(excludedChar.hash)) {
-					person.getHints().remove(hint);
-					return;
-				}
+		if (this.completedPersons.contains(excludedChar.personID) || excludedChar.batchNumber != this.batchNumber) {
+			return;
+		}
+		this.charSetManager.handleExcludedChar(excludedChar.value, excludedChar.personID);
+		Person person = this.persons.get(excludedChar.personID);
+		person.dropChar(excludedChar.value);
+		for (Hint hint : person.getHints()) {
+			if(hint.getValue().equals(excludedChar.hash)) {
+				person.getHints().remove(hint);
+				return;
 			}
 		}
 	}
 
 	private void handle(CompletedChunk chunk) {
+		if (chunk.batchNumber != this.batchNumber) {
+			return;
+		}
+
 		this.charSetManager.handleChunkFinish(chunk.missingChar);
 		if (this.charSetManager.isFinished(chunk.missingChar)) {
 			for (Integer personID : this.charSetManager.personsIncluding(chunk.missingChar)) {
@@ -278,7 +288,7 @@ public class Master extends AbstractLoggingActor {
 	private void sendHintResolveRequest(ActorRef worker) {
 		PermutationChunk chunk = this.charSetManager.nextChunk();
 		Set<Hint> hints = collectHints(chunk.getMissingChar());
-		Worker.HintSolvingRequest request = new Worker.HintSolvingRequest(chunk, hints);
+		Worker.HintSolvingRequest request = new Worker.HintSolvingRequest(chunk, hints, this.batchNumber);
 		worker.tell(request, this.self());
 	}
 

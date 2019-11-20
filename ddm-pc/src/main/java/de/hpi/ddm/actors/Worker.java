@@ -59,6 +59,7 @@ public class Worker extends AbstractLoggingActor {
 		private static final long serialVersionUID = 7471763615108065806L;
 		private PermutationChunk chunk;
 		private Set<Hint> hints;
+		private int batchNumber;
 	}
 
 	@Data @NoArgsConstructor @AllArgsConstructor
@@ -161,8 +162,8 @@ public class Worker extends AbstractLoggingActor {
 	}
 
 	private void handle(HintSolvingRequest request) {
-		hashAndCompare(request.chunk, request.hints);
-		this.sender().tell(new Master.CompletedChunk(request.chunk.getMissingChar()), this.self());
+		hashAndCompare(request.chunk, request.hints, request.batchNumber);
+		this.sender().tell(new Master.CompletedChunk(request.chunk.getMissingChar(), request.batchNumber), this.self());
 		requestWork();
 	}
 
@@ -216,13 +217,13 @@ public class Worker extends AbstractLoggingActor {
 		}
 	}
 
-	private void hashAndCompare(PermutationChunk chunk, Set<Hint> hints) {
+	private void hashAndCompare(PermutationChunk chunk, Set<Hint> hints, int batchNumber) {
 		for (String permutation : chunk.getPermutations()) {
 			Integer personID = null;
 			for (Hint hint : hints) {
 				if (hasHash(permutation, hint.getValue())) {
 					Master.ExcludedChar message = new Master.ExcludedChar(hint.getPersonID(), chunk.getMissingChar(),
-							hint.getValue());
+							hint.getValue(), batchNumber);
 					//log().info("Char {} is NOT in password of person {}", chunk.getMissingChar(), hint.getPersonID());
 					this.master.tell(message, this.self());
 					personID = hint.getPersonID();
