@@ -21,11 +21,10 @@ object SimpleSpark extends App {
       }
     }
   } catch {
-    case _: Throwable => {
+    case _: Throwable =>
       println(" Usage: java -jar NoCommentCoding.jar [--path ./TPCH] [--cores 4]")
       println(" Hint: Scala requires Java 8")
       System.exit(1)
-    }
   }
 
   // Create a SparkSession to work with Spark
@@ -51,5 +50,5 @@ object SimpleSpark extends App {
   val inputs = List("region", "nation", "supplier", "customer", "part", "lineitem", "orders")
     .map(name => s"$dataPath/tpch_$name.csv")
 
-  time { Sindy.discoverINDs(inputs, spark, numPartitions) }
+  time { Sindy.discoverINDs(inputs, spark) }
 }

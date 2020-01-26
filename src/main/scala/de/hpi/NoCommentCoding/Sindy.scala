@@ -1,10 +1,14 @@
 package de.hpi.NoCommentCoding
 
-import org.apache.spark.sql.{Dataset, Encoder, Row, SparkSession}
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.functions.collect_set
+
 
 object Sindy {
+  case class Cell(value: String, column: String)
 
-  def discoverINDs(inputs: List[String], spark: SparkSession, numPartitions: Int): Unit = {
+  def discoverINDs(inputs: List[String], spark: SparkSession): Unit = {
+    import spark.implicits._
 
     def read(name: String) = {
       spark.read
@@ -13,37 +17,32 @@ object Sindy {
         .option("ignoreLeadingWhiteSpace", "true")
         .option("ignoreTrailingWhiteSpace", "true")
         .csv(name)
-        //.repartition(numPartitions)
     }
 
-    // select each column and get domain
-    val columns = inputs.map(read)
-      .flatMap(table =>
-        table
-          .columns
-          .map(column =>
-            table
-              .select(column)
-              .distinct()
-              .repartition(numPartitions)
-              .cache()))
+    // tuples of cell values and column name
+    val cells = inputs.map(read).map(table =>
+      table
+        .flatMap(row =>
+          row
+            .schema
+            .fieldNames.map(column => (row.getAs[String](column), column))))
+      .reduce((table_1, table_2) => table_1 union table_2)
 
-    // make all pairs of pairwise different columns (without same columns)
-    val pairs = columns
-      .flatMap(column =>
-        columns
-          .filter(anotherColumn => anotherColumn != column)
-          .map(anotherColumn =>(column, anotherColumn)))
+    val groupedCells = cells.groupBy($"_1").agg(collect_set($"_2").as("_2"))
 
-    // only keep pairs where second contains all values of first
-    val inds = pairs.filter(pair => pair._1.except(pair._2).isEmpty)
+    val inclusionLists = groupedCells
+      .flatMap(cell => {
+        val columns = cell.getAs[Seq[String]]("_2")
+        columns.map(column => (column, columns.filter(column != _)))
+      }).filter("size(_2) != 0")
 
-    // select column names, group, format and print
+    val inds = inclusionLists
+      .groupByKey(_._1)
+      .reduceGroups((group_1, group_2) => (group_1._1, group_1._2.intersect(group_2._2)))
+
     inds
-      .map(pair => (pair._1.schema(0).name, pair._2.schema(0).name))
-      .groupBy(pair => pair._1)
-      .map(group => (group._1, group._2.map(pair => pair._2).sorted.mkString(", ")))
-      .toList.sortBy(group => group._1)
-      .foreach(ind => println(s"${ind._1} < ${ind._2}"))
+      .sort("value")
+      .map(group => (group._1, group._2._2.sorted.mkString(", ")))
+      .foreach(ind => if(!ind._2.isEmpty) println(s"${ind._1} < ${ind._2}"))
   }
 }
